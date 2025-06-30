@@ -1,23 +1,26 @@
 import hashlib
+import json
 import re
 from collections.abc import Callable, Generator, Iterator
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeVar, overload
 
 import click
+import duckdb
 import msgpack
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.flight as flight
-import query_farm_server_base.auth as auth
-import query_farm_server_base.auth_manager as auth_manager
-import query_farm_server_base.auth_manager_naive as auth_manager_naive
-import query_farm_server_base.flight_handling as flight_handling
-import query_farm_server_base.flight_inventory as flight_inventory
-import query_farm_server_base.middleware as base_middleware
-import query_farm_server_base.parameter_types as parameter_types
-import query_farm_server_base.schema_uploader as schema_uploader
-import query_farm_server_base.server as base_server
+import query_farm_duckdb_json_serialization.expression
+import query_farm_flight_server.auth as auth
+import query_farm_flight_server.auth_manager as auth_manager
+import query_farm_flight_server.auth_manager_naive as auth_manager_naive
+import query_farm_flight_server.flight_handling as flight_handling
+import query_farm_flight_server.flight_inventory as flight_inventory
+import query_farm_flight_server.middleware as base_middleware
+import query_farm_flight_server.parameter_types as parameter_types
+import query_farm_flight_server.schema_uploader as schema_uploader
+import query_farm_flight_server.server as base_server
 import structlog
 from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
 
@@ -396,8 +399,8 @@ def descriptor_unpack_(descriptor: flight.FlightDescriptor) -> DescriptorParts:
 class FlightTicketData(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)  # for Pydantic v2
     descriptor: flight.FlightDescriptor
-    json_filters: str
-    column_ids: list[int]
+
+    where_clause: str | None = None
 
     # These are the parameters for the table returning function.
     table_function_parameters: pa.RecordBatch | None = None
@@ -465,13 +468,24 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
         database = library.by_name(descriptor_parts.catalog_name)
         schema = database.by_name(descriptor_parts.schema_name)
 
+        filter_sql_where_clause: str | None = None
+        if parameters.parameters.json_filters is not None:
+            context.logger.debug("duckdb_input", input=json.dumps(parameters.parameters.json_filters.filters))
+            filter_sql_where_clause, filter_sql_field_type_info = (
+                query_farm_duckdb_json_serialization.expression.convert_to_sql(
+                    source=parameters.parameters.json_filters.filters,
+                    bound_column_names=parameters.parameters.json_filters.column_binding_names_by_index,
+                )
+            )
+            if filter_sql_where_clause == "":
+                filter_sql_where_clause = None
+
         if descriptor_parts.type == "table":
             schema.by_name("table", descriptor_parts.name)
 
             ticket_data = FlightTicketData(
                 descriptor=parameters.descriptor,
-                json_filters=parameters.parameters.json_filters,
-                column_ids=parameters.parameters.column_ids,
+                where_clause=filter_sql_where_clause,
                 at_unit=parameters.parameters.at_unit,
                 at_value=parameters.parameters.at_value,
             )
@@ -484,8 +498,7 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
 
             ticket_data = FlightTicketData(
                 descriptor=parameters.descriptor,
-                json_filters=parameters.parameters.json_filters,
-                column_ids=parameters.parameters.column_ids,
+                where_clause=filter_sql_where_clause,
                 table_function_parameters=parameters.parameters.table_function_parameters,
                 table_function_input_schema=parameters.parameters.table_function_input_schema,
                 at_unit=parameters.parameters.at_unit,
@@ -524,6 +537,12 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
                     )
 
         return flight_inventory.upload_and_generate_schema_list(
+            upload_parameters=flight_inventory.UploadParameters(
+                s3_client=None,
+                base_url="http://localhost",
+                bucket_name="test_bucket",
+                bucket_prefix="test_prefix",
+            ),
             flight_service_name=self.service_name,
             flight_inventory=dynamic_inventory,
             schema_details={},
@@ -784,8 +803,6 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
                 output_schema: pa.Schema,
             ) -> Generator[pa.RecordBatch, pa.RecordBatch, None]:
                 yield parameters.parameters
-
-            #                yield pa.RecordBatch.from_arrays([parameters.column(0)], schema=parameters.schema)
 
             def dynamic_schema_handler_output_schema(
                 parameters: pa.RecordBatch, input_schema: pa.Schema | None = None
@@ -1147,7 +1164,7 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
 
                 updated_rows = conform_nullable(existing_table.schema, updated_rows)
 
-                table_without_updated_rows = pa.concat_tables(
+                updated_table = pa.concat_tables(
                     [
                         table_without_updated_rows,
                         updated_rows.select(table_without_updated_rows.schema.names),
@@ -1157,7 +1174,9 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
                 if return_chunks:
                     writer.write_table(updated_rows)
 
-                table_info.update_table(table_without_updated_rows)
+                existing_table = updated_table
+
+        table_info.update_table(existing_table)
 
         return change_count
 
@@ -1214,7 +1233,9 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
                 if return_chunks:
                     writer.write_table(target_rows)
 
-                table_info.update_table(changed_table)
+                existing_table = changed_table
+
+        table_info.update_table(existing_table)
 
         return change_count
 
@@ -1617,6 +1638,19 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
                 raise flight.FlightServerError("Timestamp not supported for table versioning")
             else:
                 table_version = table.version()
+
+            if descriptor_parts.schema_name == "test_predicate_pushdown" and ticket_data.where_clause is not None:
+                # We are going to do the predicate pushdown for filtering the data we have in memory.
+                # At this point if we have JSON filters we should test that we can decode them.
+                with duckdb.connect(":memory:") as connection:
+                    connection.execute("SET TimeZone = 'UTC'")
+                    sql = f"select * from table_version where {ticket_data.where_clause}"
+                    try:
+                        results = connection.execute(sql).fetch_arrow_table()
+                    except Exception as e:
+                        raise flight.FlightServerError(f"Failed to execute predicate pushdown: {e} sql: {sql}") from e
+                    table_version = results
+
             return flight.RecordBatchStream(table_version)
         elif descriptor_parts.type == "table_function":
             table_function = schema.by_name("table_function", descriptor_parts.name)
@@ -1630,9 +1664,7 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
                 output_schema,
                 table_function.handler(
                     parameter_types.TableFunctionParameters(
-                        parameters=ticket_data.table_function_parameters,
-                        json_filters=ticket_data.json_filters,
-                        column_ids=ticket_data.column_ids,
+                        parameters=ticket_data.table_function_parameters, where_clause=ticket_data.where_clause
                     ),
                     output_schema,
                 ),
