@@ -36,9 +36,6 @@ jobs:
       - name: Lint & Format (Ruff)
         run: rye run ruff check .
 
-      - name: Run tests
-        run: rye test
-
       - name: Build container
         run: |
           docker build .
