@@ -39,6 +39,9 @@ jobs:
       - name: Lint & Format (Ruff)
         run: rye run ruff check .
 
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
       - name: Build container
         run: |
           IMAGE_NAME=ghcr.io/query-farm/python-airport-test-server
