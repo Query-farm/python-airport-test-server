@@ -38,3 +38,7 @@ jobs:
 
       - name: Run tests
         run: rye test
+
+      - name: Build container
+        run: |
+          docker build .

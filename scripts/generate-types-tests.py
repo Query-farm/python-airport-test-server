@@ -175,6 +175,8 @@ for record in data:
 # Require statement will ensure this test is run with this extension loaded
 require airport
 
+require-env AIRPORT_TEST_SERVER_AVAILABLE
+
 # Create the initial secret, the token value doesn't matter.
 statement ok
 CREATE SECRET airport_testing (
