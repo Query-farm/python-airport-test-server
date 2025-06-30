@@ -793,7 +793,7 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
                 # Just echo the parameters back as a single row.
                 assert parameters.parameters
                 rows = []
-                for i in range(parameters.parameters.column(0).to_pylist()[0]):
+                for _i in range(parameters.parameters.column(0).to_pylist()[0]):
                     rows.append({f"result_{idx}": idx for idx in range(20)})
 
                 yield pa.RecordBatch.from_pylist(rows, schema=output_schema)
