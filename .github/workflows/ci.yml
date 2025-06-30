@@ -38,4 +38,10 @@ jobs:
 
       - name: Build container
         run: |
-          docker build .
+          IMAGE_NAME=ghcr.io/${{ github.repository_owner }}/python-airport-test-server
+          docker build -t $IMAGE_NAME:latest .
+
+      - name: Push Docker image to GHCR
+        run: |
+          IMAGE_NAME=ghcr.io/${{ github.repository_owner }}/python-airport-test-server
+          docker push $IMAGE_NAME:latest
