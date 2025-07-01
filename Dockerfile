@@ -1,7 +1,6 @@
 FROM python:slim
 
 WORKDIR /app
-RUN ls -l
 COPY requirements.lock ./
 COPY pyproject.toml ./
 COPY README.md ./
