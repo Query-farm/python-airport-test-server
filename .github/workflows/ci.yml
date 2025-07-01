@@ -47,6 +47,15 @@ jobs:
           IMAGE_NAME=ghcr.io/query-farm/python-airport-test-server
           docker build -t $IMAGE_NAME:latest .
 
+      - name: Start server container
+        run: |
+          IMAGE_NAME=ghcr.io/query-farm/python-airport-test-server
+          docker run -d --name airport_test_server -p 50003:50003 $IMAGE_NAME:latest
+
+      - name: Stop server
+        run: |
+          docker stop airport_test_server
+
       - name: Push Docker image to GHCR
         run: |
           IMAGE_NAME=ghcr.io/query-farm/python-airport-test-server
