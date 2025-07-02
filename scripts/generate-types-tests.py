@@ -2,7 +2,8 @@
 # from a list of basic types.
 
 import math
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 
 def unescape_value(value: str) -> str:
