@@ -81,7 +81,7 @@ jobs:
 
       - name: Set up Docker to use gcloud as a credential helper
         run: |
-          gcloud auth configure-docker us-central1-docker.pkg.dev
+          gcloud auth configure-docker us-east1-docker.pkg.dev
 
       # - name: Set up QEMU
       #   uses: docker/setup-qemu-action@v2
