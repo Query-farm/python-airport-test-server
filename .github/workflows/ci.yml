@@ -94,6 +94,6 @@ jobs:
         with:
           context: .
           push: true
-          tags: us-east1-docker.pkg.dev/airport-ci-service/airport-ci-service:latest
+          tags: us-east1-docker.pkg.dev/airport-ci-service/airport-ci-service/python-airport-test-server:latest
           platforms: linux/amd64
 
