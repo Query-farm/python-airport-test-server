@@ -89,6 +89,5 @@ jobs:
           image_name: backend
           image_tag: latest,v1
           dockerfile: ./Dockerfile
-          context: ./docker
 
 
