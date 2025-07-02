@@ -1,5 +1,6 @@
 FROM python:slim
 
+EXPOSE 50003
 WORKDIR /app
 COPY requirements.lock ./
 COPY pyproject.toml ./

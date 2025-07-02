@@ -4,14 +4,14 @@
 import math
 
 
-def unescape_value(value):
+def unescape_value(value: str) -> str:
     """Unescape the value for display."""
     if value.startswith("'") and value.endswith("'"):
         return value[1:-1].replace("''", "'")  # Remove single quotes
     return value
 
 
-def parse_to_float(val):
+def parse_to_float(val: str) -> float:
     if isinstance(val, str):
         v = val.replace("'", "")  # Remove single quotes
         try:
@@ -21,7 +21,7 @@ def parse_to_float(val):
     return val  # already a float
 
 
-def sort_key(val):
+def sort_key(val: str) -> tuple[int] | tuple[int, float]:
     x = parse_to_float(val)
     if math.isnan(x):
         return (3,)
@@ -33,7 +33,7 @@ def sort_key(val):
         return (1, x)
 
 
-def custom_sorted(values):
+def custom_sorted(values: list[Any]) -> list[Any]:
     if "'inf'" in values or "'-inf'" in values or "'nan'" in values:
         # Sort using the custom key
         return sorted(values, key=sort_key)
@@ -181,7 +181,7 @@ require-env AIRPORT_TEST_SERVER_AVAILABLE
 statement ok
 CREATE SECRET airport_testing (
   type airport,
-  auth_token 'example_token',
+  auth_token uuid(),
   scope 'grpc://localhost:50003/');
 
 # Reset the test server
@@ -243,3 +243,11 @@ insert into {table_name} values ({value});
                 print("----", file=f)
                 print(unescape_value(value), file=f)
                 print("", file=f)
+
+        print(
+            """# Reset the test server
+    statement ok
+    CALL airport_action('grpc://localhost:50003/', 'reset');
+    """,
+            file=f,
+        )

@@ -91,5 +91,5 @@ jobs:
           context: .
           push: true
           tags: ghcr.io/query-farm/python-airport-test-server:latest
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
 
