@@ -65,6 +65,7 @@ jobs:
   build-linux:
     needs: test
     runs-on: ubuntu-latest
+
     permissions:
       contents: 'read'
       id-token: 'write'
@@ -78,27 +79,21 @@ jobs:
           project_id: ${{ secrets.GOOGLE_PROJECT_ID }}
           workload_identity_provider: ${{ secrets.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
 
-      - name: Show complete auth info
-        run: |
-          echo "=== Authentication Status ==="
-          gcloud auth list
-          echo ""
-          echo "=== Current Configuration ==="
-          gcloud config list
-          echo ""
-          echo "=== Active Account ==="
-          gcloud auth list --filter=status:ACTIVE --format="value(account)"
-
       - name: Set up Docker to use gcloud as a credential helper
         run: |
-          gcloud auth configure-docker us-east1-docker.pkg.dev
+          gcloud auth configure-docker us-central1-docker.pkg.dev
 
-      - uses: RafikFarhad/push-to-gcr-github-action@v5-rc1
+      # - name: Set up QEMU
+      #   uses: docker/setup-qemu-action@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build and push Linux images (amd64 + arm64)
+        uses: docker/build-push-action@v4
         with:
-          registry: gcr.io
-          project_id: airport-ci-service
-          image_name: backend
-          image_tag: latest,v1
-          dockerfile: ./Dockerfile
-
+          context: .
+          push: true
+          tags: us-east1-docker.pkg.dev/airport-ci-service/airport-ci-service/python-airport-test-server:latest
+          platforms: linux/amd64
 
