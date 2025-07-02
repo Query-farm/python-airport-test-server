@@ -86,7 +86,9 @@ jobs:
 
       - name: Build docker image
         run: |
-          docker build -t us-east1-docker.pkg.dev/airport-ci-service/airport-ci-service/python-airport-test-server:latest .
-          docker push us-east1-docker.pkg.dev/airport-ci-service/airport-ci-service/python-airport-test-server:latest
+          IMAGE_NAME="us-east1-docker.pkg.dev/airport-ci-service/airport-ci-service/python-airport-test-server"
+          docker build -t $IMAGE_NAME:latest -t $IMAGE_NAME:${{ github.sha }} .
+          docker push $IMAGE_NAME:latest
+          docker push $IMAGE_NAME:${{ github.sha }}
 
 
