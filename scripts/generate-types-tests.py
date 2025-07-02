@@ -2,6 +2,7 @@
 # from a list of basic types.
 
 import math
+from typing import Any, Sequence
 
 
 def unescape_value(value: str) -> str:
@@ -33,7 +34,7 @@ def sort_key(val: str) -> tuple[int] | tuple[int, float]:
         return (1, x)
 
 
-def custom_sorted(values: list[Any]) -> list[Any]:
+def custom_sorted(values: Sequence[Any]) -> list[Any]:
     if "'inf'" in values or "'-inf'" in values or "'nan'" in values:
         # Sort using the custom key
         return sorted(values, key=sort_key)
@@ -161,6 +162,8 @@ data = [
     {"field_name": "varint", "type": "varint", "values": ["1234567890123456789"], "type_code": "I"},
 ]
 
+
+test_server_location = "grpc://"
 
 for record in data:
     with open(
