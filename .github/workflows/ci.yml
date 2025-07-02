@@ -78,6 +78,7 @@ jobs:
         with:
           project_id: ${{ secrets.GOOGLE_PROJECT_ID }}
           workload_identity_provider: ${{ secrets.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
 
       - name: Set up Docker to use gcloud as a credential helper
         run: |
