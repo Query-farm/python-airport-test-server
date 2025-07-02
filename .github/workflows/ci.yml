@@ -83,17 +83,9 @@ jobs:
         run: |
           gcloud auth configure-docker us-east1-docker.pkg.dev
 
-      # - name: Set up QEMU
-      #   uses: docker/setup-qemu-action@v2
+      - name: Build docker image
+        run: |
+          docker build -t us-east1-docker.pkg.dev/airport-ci-service/airport-ci-service/python-airport-test-server:latest .
+          docker push us-east1-docker.pkg.dev/airport-ci-service/airport-ci-service/python-airport-test-server:latest
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      - name: Build and push Linux images (amd64 + arm64)
-        uses: docker/build-push-action@v4
-        with:
-          context: .
-          push: true
-          tags: us-east1-docker.pkg.dev/airport-ci-service/airport-ci-service/python-airport-test-server:latest
-          platforms: linux/amd64
 
