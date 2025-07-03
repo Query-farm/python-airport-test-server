@@ -12,6 +12,9 @@ permissions:
 
 jobs:
   test:
+    permissions:
+      contents: 'read'
+      id-token: 'write'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -38,40 +41,6 @@ jobs:
 
       - name: Lint & Format (Ruff)
         run: rye run ruff check .
-
-      # - name: Log in to GHCR
-      #   run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-
-      # - name: Build container
-      #   run: |
-      #     IMAGE_NAME=ghcr.io/query-farm/python-airport-test-server
-      #     docker build -t $IMAGE_NAME:latest .
-
-      # - name: Start server container
-      #   run: |
-      #     IMAGE_NAME=ghcr.io/query-farm/python-airport-test-server
-      #     docker run -d --name airport_test_server -p 50003:50003 $IMAGE_NAME:latest
-
-      # - name: Stop server
-      #   run: |
-      #     docker stop airport_test_server
-
-      # - name: Push Docker image to GHCR
-      #   run: |
-      #     IMAGE_NAME=ghcr.io/query-farm/python-airport-test-server
-      #     docker push $IMAGE_NAME:latest
-
-  # Build Linux images on ubuntu runner
-  build-linux:
-    needs: test
-    runs-on: ubuntu-latest
-
-    permissions:
-      contents: 'read'
-      id-token: 'write'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
