@@ -25,7 +25,6 @@ requires = ["hatchling==1.26.3", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [tool.rye]
-virtual = true
 managed = true
 dev-dependencies = [
     "pytest>=8.3.2",
