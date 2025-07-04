@@ -875,10 +875,13 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
                     if input_chunk is None:
                         break
 
-                    assert parameters.parameters
+                    assert parameters.parameters is not None
+                    parameter_value = parameters.parameters.column(0).to_pylist()[0]
+
+                    # Since input chunks could be different sizes, standardize it.
                     result = pa.RecordBatch.from_arrays(
                         [
-                            parameters.parameters.column(0),
+                            [parameter_value] * len(input_chunk),
                             input_chunk.column(0),
                         ],
                         schema=output_schema,

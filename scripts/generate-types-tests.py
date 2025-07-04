@@ -179,25 +179,23 @@ for record in data:
 # Require statement will ensure this test is run with this extension loaded
 require airport
 
-require-env AIRPORT_TEST_SERVER_AVAILABLE
-
 # Create the initial secret, the token value doesn't matter.
 statement ok
 CREATE SECRET airport_testing (
   type airport,
   auth_token uuid(),
-  scope 'grpc://localhost:50003/');
+  scope 'grpc+tls://airport-ci.query.farm/');
 
 # Reset the test server
 statement ok
-CALL airport_action('grpc://localhost:50003/', 'reset');
+CALL airport_action('grpc+tls://airport-ci.query.farm/', 'reset');
 
 # Create the initial database
 statement ok
-CALL airport_action('grpc://localhost:50003/', 'create_database', 'test1');
+CALL airport_action('grpc+tls://airport-ci.query.farm/', 'create_database', 'test1');
 
 statement ok
-ATTACH 'test1' (TYPE  AIRPORT, location 'grpc://localhost:50003/');
+ATTACH 'test1' (TYPE  AIRPORT, location 'grpc+tls://airport-ci.query.farm/');
 """,
             file=f,
         )
@@ -251,7 +249,7 @@ insert into {table_name} values ({value});
         print(
             """# Reset the test server
     statement ok
-    CALL airport_action('grpc://localhost:50003/', 'reset');
+    CALL airport_action('grpc+tls://airport-ci.query.farm/', 'reset');
     """,
             file=f,
         )
