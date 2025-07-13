@@ -2,7 +2,6 @@ import datetime
 import hashlib
 import json
 import re
-import uuid
 from collections.abc import Callable, Generator, Iterator
 from dataclasses import dataclass, field
 from decimal import Decimal
