@@ -1,8 +1,11 @@
+import datetime
 import hashlib
 import json
 import re
+import uuid
 from collections.abc import Callable, Generator, Iterator
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any, Literal, TypeVar, overload
 
 import click
@@ -889,6 +892,49 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
 
                 return pa.RecordBatch.from_arrays([["last"], ["row"]], schema=output_schema)
 
+            static_data_schema = SchemaCollection(
+                scalar_functions_by_name=CaseInsensitiveDict(),
+                table_functions_by_name=CaseInsensitiveDict(),
+                tables_by_name=CaseInsensitiveDict(
+                    {
+                        "employees": TableInfo(
+                            table_versions=[
+                                pa.Table.from_arrays(
+                                    [
+                                        ["Emily", "Amy"],
+                                        [30, 32],
+                                        [datetime.datetime(2023, 10, 1), datetime.datetime(2024, 10, 2)],
+                                        ["{}", "[1,2,3]"],
+                                        [uuid.uuid4().bytes, uuid.uuid4().bytes],
+                                        [datetime.date(2023, 10, 1), datetime.date(2024, 10, 2)],
+                                        [True, False],
+                                        ["Ann", None],
+                                        [1234.123, 5678.123],
+                                        [Decimal("12345.678790"), Decimal("67890.123456")],
+                                    ],
+                                    schema=pa.schema(
+                                        [
+                                            pa.field("name", pa.string()),
+                                            pa.field("age", pa.int32()),
+                                            pa.field("start_date", pa.timestamp("ms")),
+                                            pa.field("json_data", pa.json_(pa.string())),
+                                            pa.field("id", pa.uuid()),
+                                            pa.field("birthdate", pa.date32()),
+                                            pa.field("is_active", pa.bool_()),
+                                            pa.field("nickname", pa.string()),
+                                            pa.field("salary", pa.float64()),
+                                            pa.field("balance", pa.decimal128(12, 6)),
+                                        ],
+                                        metadata={"can_produce_statistics": "1"},
+                                    ),
+                                )
+                            ],
+                            row_id_counter=2,
+                        )
+                    }
+                ),
+            )
+
             util_schema = SchemaCollection(
                 scalar_functions_by_name=CaseInsensitiveDict(
                     {
@@ -1065,6 +1111,7 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
             )
 
             library.databases_by_name[database_name].schemas_by_name["utils"] = util_schema
+            library.databases_by_name[database_name].schemas_by_name["static_data"] = static_data_schema
 
             return iter([])
         elif action.type == "drop_database":
@@ -1610,6 +1657,58 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
             catalog_name=parameters.catalog,
             schema_name=parameters.schema_name,
         )[0]
+
+    def action_column_statistics(
+        self,
+        *,
+        context: base_server.CallContext[auth.Account, auth.AccountToken],
+        parameters: parameter_types.ColumnStatistics,
+    ) -> pa.Table:
+        assert context.caller is not None
+
+        descriptor_parts = descriptor_unpack_(parameters.flight_descriptor)
+        library = self.contents[context.caller.token.token]
+        database = library.by_name(descriptor_parts.catalog_name)
+        schema = database.by_name(descriptor_parts.schema_name)
+
+        assert descriptor_parts.type == "table"
+        table = schema.by_name("table", descriptor_parts.name)
+
+        contents = table.version().column(parameters.column_name)
+        # Since the table is a Pyarrow table we need to produce some values.
+        not_null_count = pc.count(contents, "only_valid").as_py()
+        null_count = pc.count(contents, "only_null").as_py()
+        distinct_count = len(set(contents.to_pylist()))
+        sorted_contents = sorted(filter(lambda x: x is not None, contents.to_pylist()))
+        min_value = sorted_contents[0]
+        max_value = sorted_contents[-1]
+
+        if contents.type == pa.uuid():
+            # For UUIDs, we need to convert them to strings for the output.
+            min_value = min_value.bytes
+            max_value = max_value.bytes
+
+        result_table = pa.Table.from_pylist(
+            [
+                {
+                    "has_not_null": not_null_count > 0,
+                    "has_null": null_count > 0,
+                    "distinct_count": distinct_count,
+                    "min": min_value,
+                    "max": max_value,
+                }
+            ],
+            schema=pa.schema(
+                [
+                    pa.field("has_not_null", pa.bool_()),
+                    pa.field("has_null", pa.bool_()),
+                    pa.field("distinct_count", pa.uint64()),
+                    pa.field("min", contents.type),
+                    pa.field("max", contents.type),
+                ]
+            ),
+        )
+        return result_table
 
     def impl_do_get(
         self,
