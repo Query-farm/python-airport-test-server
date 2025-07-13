@@ -905,7 +905,10 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
                                         [30, 32],
                                         [datetime.datetime(2023, 10, 1), datetime.datetime(2024, 10, 2)],
                                         ["{}", "[1,2,3]"],
-                                        [uuid.uuid4().bytes, uuid.uuid4().bytes],
+                                        [
+                                            bytes.fromhex("b975e4187a6d4afdb1a41f7174ce1805"),
+                                            bytes.fromhex("7ef19ab7c7af4f0188c386fae862fd60"),
+                                        ],
                                         [datetime.date(2023, 10, 1), datetime.date(2024, 10, 2)],
                                         [True, False],
                                         ["Ann", None],
