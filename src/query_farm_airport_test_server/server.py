@@ -736,6 +736,18 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
             if context.caller.token.token in self.contents:
                 del self.contents[context.caller.token.token]
             return iter([])
+        elif action.type == "generate_error":
+            error_name = action.body.to_pybytes().decode("utf-8")
+            known_errors = {
+                "flight_unavailable": flight.FlightUnavailableError,
+                "flight_server_error": flight.FlightServerError,
+                "flight_unauthenticated": flight.FlightUnauthenticatedError,
+            }
+            if error_name in known_errors:
+                raise known_errors[error_name](f"Testing error: {error_name}")
+            else:
+                context.logger.error("Unknown error type", error_name=error_name)
+                raise flight.FlightServerError(f"Unknown error type: {error_name}")
         elif action.type == "create_database":
             database_name = action.body.to_pybytes().decode("utf-8")
             context.logger.debug("Creating database", database_name=database_name)
