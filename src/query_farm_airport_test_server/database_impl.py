@@ -473,12 +473,13 @@ class DatabaseLibrary:
 
         with tempfile.NamedTemporaryFile("wb", dir=dir_name, delete=False) as tmp_file:
             pickle.dump(data, tmp_file)
-            os.replace(tmp_file.name, file_path)
+        os.replace(tmp_file.name, file_path)
 
 
 class DatabaseLibraryContext:
-    def __init__(self, token: str):
+    def __init__(self, token: str, readonly: bool = False) -> None:
         self.token = token
+        self.readonly = readonly
 
     def __enter__(self) -> DatabaseLibrary:
         self.db = DatabaseLibrary.read_from_file(self.token)
@@ -489,7 +490,8 @@ class DatabaseLibraryContext:
             print(f"An error occurred: {exc_val}")
             # Optionally return True to suppress the exception
             return
-        self.db.write_to_file(self.token)
+        if not self.readonly:
+            self.db.write_to_file(self.token)
 
 
 def add_handler(table: pa.Table) -> pa.Array:

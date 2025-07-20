@@ -144,9 +144,6 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
         self._auth_manager = auth_manager
         super().__init__(location=location, **kwargs)
 
-        # token, database name, schema, table_name
-        # self.contents: dict[str, DatabaseLibrary] = {}
-
         self.ROWID_FIELD_NAME = "rowid"
         self.rowid_field = pa.field(self.ROWID_FIELD_NAME, pa.int64(), metadata={"is_rowid": "1"})
 
@@ -159,7 +156,7 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
         assert context.caller is not None
 
         descriptor_parts = descriptor_unpack_(parameters.descriptor)
-        with DatabaseLibraryContext(context.caller.token.token) as library:
+        with DatabaseLibraryContext(context.caller.token.token, readonly=True) as library:
             database = library.by_name(descriptor_parts.catalog_name)
             schema = database.by_name(descriptor_parts.schema_name)
 
@@ -292,7 +289,7 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
     ) -> base_server.GetCatalogVersionResult:
         assert context.caller is not None
 
-        with DatabaseLibraryContext(context.caller.token.token) as library:
+        with DatabaseLibraryContext(context.caller.token.token, readonly=True) as library:
             database = library.by_name(parameters.catalog_name)
 
             context.logger.debug(
@@ -402,11 +399,11 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
 
             database.version += 1
 
-            return table_info.flight_info(
-                name=parameters.table_name,
-                catalog_name=parameters.catalog_name,
-                schema_name=parameters.schema_name,
-            )[0]
+        return table_info.flight_info(
+            name=parameters.table_name,
+            catalog_name=parameters.catalog_name,
+            schema_name=parameters.schema_name,
+        )[0]
 
     def impl_do_action(
         self,
@@ -554,7 +551,7 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
 
             table_info.update_table(existing_table)
 
-            return change_count
+        return change_count
 
     def exchange_delete(
         self,
@@ -613,7 +610,7 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
 
             table_info.update_table(existing_table)
 
-            return change_count
+        return change_count
 
     def exchange_insert(
         self,
@@ -630,6 +627,7 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
 
         if descriptor_parts.type != "table":
             raise flight.FlightServerError(f"Unsupported descriptor type: {descriptor_parts.type}")
+
         with DatabaseLibraryContext(context.caller.token.token) as library:
             database = library.by_name(descriptor_parts.catalog_name)
             schema = database.by_name(descriptor_parts.schema_name)
@@ -686,11 +684,11 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
                     #         )
                     new_rows = conform_nullable(existing_table.schema, new_rows)
 
-                    table_info.update_table(
-                        pa.concat_tables([existing_table, new_rows.select(existing_table.schema.names)])
-                    )
+                    existing_table = pa.concat_tables([existing_table, new_rows.select(existing_table.schema.names)])
 
-            return change_count
+            table_info.update_table(existing_table)
+
+        return change_count
 
     def exchange_table_function_in_out(
         self,
@@ -713,7 +711,7 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
 
             output_schema = table_info.output_schema(parameters=parameters.parameters, input_schema=input_schema)
             gen = table_info.handler(parameters, output_schema)
-            return (output_schema, gen)
+        return (output_schema, gen)
 
     def action_add_column(
         self,
@@ -748,11 +746,11 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
             )
             database.version += 1
 
-            return table_info.flight_info(
-                name=parameters.name,
-                catalog_name=parameters.catalog,
-                schema_name=parameters.schema_name,
-            )[0]
+        return table_info.flight_info(
+            name=parameters.name,
+            catalog_name=parameters.catalog,
+            schema_name=parameters.schema_name,
+        )[0]
 
     def action_remove_column(
         self,
@@ -771,11 +769,11 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
             table_info.update_table(table_info.version().drop(parameters.removed_column))
             database.version += 1
 
-            return table_info.flight_info(
-                name=parameters.name,
-                catalog_name=parameters.catalog,
-                schema_name=parameters.schema_name,
-            )[0]
+        return table_info.flight_info(
+            name=parameters.name,
+            catalog_name=parameters.catalog,
+            schema_name=parameters.schema_name,
+        )[0]
 
     def action_rename_column(
         self,
@@ -794,11 +792,11 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
             table_info.update_table(table_info.version().rename_columns({parameters.old_name: parameters.new_name}))
             database.version += 1
 
-            return table_info.flight_info(
-                name=parameters.name,
-                catalog_name=parameters.catalog,
-                schema_name=parameters.schema_name,
-            )[0]
+        return table_info.flight_info(
+            name=parameters.name,
+            catalog_name=parameters.catalog,
+            schema_name=parameters.schema_name,
+        )[0]
 
     def action_rename_table(
         self,
@@ -818,11 +816,11 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
 
             database.version += 1
 
-            return table_info.flight_info(
-                name=parameters.new_table_name,
-                catalog_name=parameters.catalog,
-                schema_name=parameters.schema_name,
-            )[0]
+        return table_info.flight_info(
+            name=parameters.new_table_name,
+            catalog_name=parameters.catalog,
+            schema_name=parameters.schema_name,
+        )[0]
 
     def action_set_default(
         self,
@@ -858,11 +856,11 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
 
             database.version += 1
 
-            return table_info.flight_info(
-                name=parameters.name,
-                catalog_name=parameters.catalog,
-                schema_name=parameters.schema_name,
-            )[0]
+        return table_info.flight_info(
+            name=parameters.name,
+            catalog_name=parameters.catalog,
+            schema_name=parameters.schema_name,
+        )[0]
 
     def action_set_not_null(
         self,
@@ -895,11 +893,11 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
 
             database.version += 1
 
-            return table_info.flight_info(
-                name=parameters.name,
-                catalog_name=parameters.catalog,
-                schema_name=parameters.schema_name,
-            )[0]
+        return table_info.flight_info(
+            name=parameters.name,
+            catalog_name=parameters.catalog,
+            schema_name=parameters.schema_name,
+        )[0]
 
     def action_drop_not_null(
         self,
@@ -929,11 +927,11 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
 
             database.version += 1
 
-            return table_info.flight_info(
-                name=parameters.name,
-                catalog_name=parameters.catalog,
-                schema_name=parameters.schema_name,
-            )[0]
+        return table_info.flight_info(
+            name=parameters.name,
+            catalog_name=parameters.catalog,
+            schema_name=parameters.schema_name,
+        )[0]
 
     def action_change_column_type(
         self,
@@ -970,11 +968,11 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
 
             database.version += 1
 
-            return table_info.flight_info(
-                name=parameters.name,
-                catalog_name=parameters.catalog,
-                schema_name=parameters.schema_name,
-            )[0]
+        return table_info.flight_info(
+            name=parameters.name,
+            catalog_name=parameters.catalog,
+            schema_name=parameters.schema_name,
+        )[0]
 
     def action_column_statistics(
         self,
@@ -985,7 +983,7 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
         assert context.caller is not None
 
         descriptor_parts = descriptor_unpack_(parameters.flight_descriptor)
-        with DatabaseLibraryContext(context.caller.token.token) as library:
+        with DatabaseLibraryContext(context.caller.token.token, readonly=True) as library:
             database = library.by_name(descriptor_parts.catalog_name)
             schema = database.by_name(descriptor_parts.schema_name)
 
@@ -1026,7 +1024,7 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
                     ]
                 ),
             )
-            return result_table
+        return result_table
 
     def impl_do_get(
         self,
@@ -1039,7 +1037,7 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
         ticket_data = flight_handling.decode_ticket_model(ticket, FlightTicketData)
 
         descriptor_parts = descriptor_unpack_(ticket_data.descriptor)
-        with DatabaseLibraryContext(context.caller.token.token) as library:
+        with DatabaseLibraryContext(context.caller.token.token, readonly=True) as library:
             database = library.by_name(descriptor_parts.catalog_name)
             schema = database.by_name(descriptor_parts.schema_name)
 
@@ -1111,13 +1109,13 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
             # Now to get the table function, its a bit harder since they are named by action.
             table_function = schema.by_name("table_function", descriptor_parts.name)
 
-            return table_function.flight_info(
-                name=descriptor_parts.name,
-                catalog_name=descriptor_parts.catalog_name,
-                schema_name=descriptor_parts.schema_name,
-                # Pass the real parameters here.
-                parameters=parameters,
-            )[0]
+        return table_function.flight_info(
+            name=descriptor_parts.name,
+            catalog_name=descriptor_parts.catalog_name,
+            schema_name=descriptor_parts.schema_name,
+            # Pass the real parameters here.
+            parameters=parameters,
+        )[0]
 
     def action_flight_info(
         self,
