@@ -704,14 +704,14 @@ remote_data_schema = SchemaCollection(
                     pa.schema(
                         [
                             pa.field("VendorID", pa.int32()),
-                            pa.field("tpep_pickup_datetime", pa.timestamp("ms")),
-                            pa.field("tpep_dropoff_datetime", pa.timestamp("ms")),
+                            pa.field("tpep_pickup_datetime", pa.timestamp("us")),
+                            pa.field("tpep_dropoff_datetime", pa.timestamp("us")),
                             pa.field("passenger_count", pa.int64()),
                             pa.field("trip_distance", pa.float64()),
                             pa.field("RatecodeID", pa.int64()),
                             pa.field("store_and_fwd_flag", pa.string()),
-                            pa.field("PULocationID", pa.int64()),
-                            pa.field("DOLocationID", pa.int64()),
+                            pa.field("PULocationID", pa.int32()),
+                            pa.field("DOLocationID", pa.int32()),
                             pa.field("payment_type", pa.int64()),
                             pa.field("fare_amount", pa.float64()),
                             pa.field("extra", pa.float64()),
