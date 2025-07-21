@@ -173,7 +173,7 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
                     filter_sql_where_clause = None
 
             if descriptor_parts.type == "table":
-                schema.by_name("table", descriptor_parts.name)
+                table_info = schema.by_name("table", descriptor_parts.name)
 
                 ticket_data = FlightTicketData(
                     descriptor=parameters.descriptor,
@@ -182,6 +182,8 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
                     at_value=parameters.parameters.at_value,
                 )
 
+                if table_info.endpoint_generator is not None:
+                    return table_info.endpoint_generator(ticket_data)
                 return [flight_handling.endpoint(ticket_data=ticket_data, locations=None)]
             elif descriptor_parts.type == "table_function":
                 # So the table function may not exist, because its a dynamic descriptor.

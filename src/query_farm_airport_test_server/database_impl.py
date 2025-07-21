@@ -11,6 +11,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.flight as flight
 import query_farm_flight_server.flight_inventory as flight_inventory
+import query_farm_flight_server.flight_handling as flight_handling
 import query_farm_flight_server.parameter_types as parameter_types
 
 from .utils import CaseInsensitiveDict
@@ -166,6 +167,9 @@ class TableInfo:
     # the next row id to assign.
     row_id_counter: int = 0
 
+    # This cannot be serailized but it convenient for testing.
+    endpoint_generator: Callable[[Any], list[flight.FlightEndpoint]] | None = None
+
     def update_table(self, table: pa.Table) -> None:
         assert table is not None
         assert isinstance(table, pa.Table)
@@ -226,6 +230,7 @@ class TableInfo:
         """
         self.table_versions = [deserialize_table_data(table) for table in data["table_versions"]]
         self.row_id_counter = data["row_id_counter"]
+        self.endpoint_generator = None
         return self
 
 
@@ -360,6 +365,7 @@ class DatabaseContents:
     version: int = 1
 
     def __post_init__(self) -> None:
+        self.schemas_by_name["remote_data"] = remote_data_schema
         self.schemas_by_name["static_data"] = static_data_schema
         self.schemas_by_name["utils"] = util_schema
         return
@@ -383,6 +389,7 @@ class DatabaseContents:
             {name: SchemaCollection().deserialize(schema) for name, schema in data["schemas"].items()}
         )
         self.schemas_by_name["static_data"] = static_data_schema
+        self.schemas_by_name["remote_data"] = remote_data_schema
         self.schemas_by_name["utils"] = util_schema
 
         self.version = data["version"]
@@ -648,6 +655,83 @@ def in_out_handler(
         )
 
     return pa.RecordBatch.from_arrays([["last"], ["row"]], schema=output_schema)
+
+
+def yellow_taxi_endpoint_generator(ticket_data: Any) -> list[flight.FlightEndpoint]:
+    """
+    Generate a list of FlightEndpoint objects for the NYC Yellow Taxi dataset.
+    """
+    files = [
+        "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2025-01.parquet",
+        "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2025-02.parquet",
+        #        "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2025-03.parquet",
+        #        "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2025-04.parquet",
+        #        "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2025-05.parquet",
+    ]
+    return [
+        flight_handling.endpoint(
+            ticket_data=ticket_data,
+            locations=[
+                flight_handling.dict_to_msgpack_duckdb_call_data_uri(
+                    {
+                        "function_name": "read_parquet",
+                        # So arguments could be a record batch.
+                        "data": flight_handling.serialize_arrow_ipc_table(
+                            pa.Table.from_pylist(
+                                [
+                                    {
+                                        "arg_0": files,
+                                        "hive_partitioning": False,
+                                        "union_by_name": True,
+                                    }
+                                ],
+                            )
+                        ),
+                    }
+                )
+            ],
+        )
+    ]
+
+
+remote_data_schema = SchemaCollection(
+    scalar_functions_by_name=CaseInsensitiveDict(),
+    table_functions_by_name=CaseInsensitiveDict(),
+    tables_by_name=CaseInsensitiveDict(
+        {
+            "nyc_yellow_taxi": TableInfo(
+                table_versions=[
+                    pa.schema(
+                        [
+                            pa.field("VendorID", pa.int32()),
+                            pa.field("tpep_pickup_datetime", pa.timestamp("ms")),
+                            pa.field("tpep_dropoff_datetime", pa.timestamp("ms")),
+                            pa.field("passenger_count", pa.int64()),
+                            pa.field("trip_distance", pa.float64()),
+                            pa.field("RatecodeID", pa.int64()),
+                            pa.field("store_and_fwd_flag", pa.string()),
+                            pa.field("PULocationID", pa.int64()),
+                            pa.field("DOLocationID", pa.int64()),
+                            pa.field("payment_type", pa.int64()),
+                            pa.field("fare_amount", pa.float64()),
+                            pa.field("extra", pa.float64()),
+                            pa.field("mta_tax", pa.float64()),
+                            pa.field("tip_amount", pa.float64()),
+                            pa.field("tolls_amount", pa.float64()),
+                            pa.field("improvement_surcharge", pa.float64()),
+                            pa.field("total_amount", pa.float64()),
+                            pa.field("congestion_surcharge", pa.float64()),
+                            pa.field("Airport_fee", pa.float64()),
+                            pa.field("cbd_congestion_fee", pa.float64()),
+                        ]
+                    ).empty_table()
+                ],
+                row_id_counter=0,
+                endpoint_generator=yellow_taxi_endpoint_generator,
+            ),
+        }
+    ),
+)
 
 
 static_data_schema = SchemaCollection(
