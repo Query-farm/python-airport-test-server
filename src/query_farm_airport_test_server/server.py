@@ -210,7 +210,7 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
     ) -> base_server.AirportSerializedCatalogRoot:
         assert context.caller is not None
 
-        with DatabaseLibraryContext(context.caller.token.token) as library:
+        with DatabaseLibraryContext(context.caller.token.token, readonly=True) as library:
             database = library.by_name(parameters.catalog_name)
 
             dynamic_inventory: dict[str, dict[str, list[flight_inventory.FlightInventoryWithMetadata]]] = {}
@@ -252,7 +252,7 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
         criteria: bytes,
     ) -> Iterator[flight.FlightInfo]:
         assert context.caller is not None
-        with DatabaseLibraryContext(context.caller.token.token) as library:
+        with DatabaseLibraryContext(context.caller.token.token, readonly=True) as library:
 
             def yield_flight_infos() -> Generator[flight.FlightInfo, None, None]:
                 for db_name, db in library.databases_by_name.items():
@@ -272,7 +272,7 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
         assert context.caller is not None
 
         descriptor_parts = descriptor_unpack_(descriptor)
-        with DatabaseLibraryContext(context.caller.token.token) as library:
+        with DatabaseLibraryContext(context.caller.token.token, readonly=True) as library:
             database = library.by_name(descriptor_parts.catalog_name)
             schema = database.by_name(descriptor_parts.schema_name)
 
@@ -1001,6 +1001,17 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
             min_value = sorted_contents[0]
             max_value = sorted_contents[-1]
 
+            additional_values = {}
+            additional_schema_fields = []
+            if contents.type in (pa.string(), pa.utf8(), pa.binary()):
+                max_length = pc.max(pc.binary_length(contents)).as_py()
+
+                additional_values = {"max_string_length": max_length, "contains_unicode": contents.type == pa.utf8()}
+                additional_schema_fields = [
+                    pa.field("max_string_length", pa.uint64()),
+                    pa.field("contains_unicode", pa.bool_()),
+                ]
+
             if contents.type == pa.uuid():
                 # For UUIDs, we need to convert them to strings for the output.
                 min_value = min_value.bytes
@@ -1014,6 +1025,7 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
                         "distinct_count": distinct_count,
                         "min": min_value,
                         "max": max_value,
+                        **additional_values,
                     }
                 ],
                 schema=pa.schema(
@@ -1023,6 +1035,7 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
                         pa.field("distinct_count", pa.uint64()),
                         pa.field("min", contents.type),
                         pa.field("max", contents.type),
+                        *additional_schema_fields,
                     ]
                 ),
             )
