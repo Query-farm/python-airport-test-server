@@ -10,8 +10,8 @@ from typing import Any, Literal, overload
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.flight as flight
-import query_farm_flight_server.flight_inventory as flight_inventory
 import query_farm_flight_server.flight_handling as flight_handling
+import query_farm_flight_server.flight_inventory as flight_inventory
 import query_farm_flight_server.parameter_types as parameter_types
 
 from .utils import CaseInsensitiveDict
