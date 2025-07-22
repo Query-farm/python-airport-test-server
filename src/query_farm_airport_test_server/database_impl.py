@@ -780,6 +780,36 @@ static_data_schema = SchemaCollection(
     ),
 )
 
+
+def collatz_step_count(n: int) -> int:
+    steps = 0
+    while n != 1:
+        if n % 2 == 0:
+            n //= 2
+        else:
+            n = 3 * n + 1
+        steps += 1
+    return steps
+
+
+def collatz(inputs: pa.Array) -> pa.Array:
+    results = [collatz_step_count(n) for n in inputs.to_pylist()]
+    return pa.array(results, type=pa.int64())
+
+
+def collatz_steps(n: int) -> list[int]:
+    steps = 0
+    results = []
+    while n != 1:
+        if n % 2 == 0:
+            n //= 2
+        else:
+            n = 3 * n + 1
+        results.append(n)
+        steps += 1
+    return results
+
+
 util_schema = SchemaCollection(
     scalar_functions_by_name=CaseInsensitiveDict(
         {
@@ -797,6 +827,18 @@ util_schema = SchemaCollection(
                 input_schema=pa.schema([pa.field("a", pa.int64()), pa.field("b", pa.int64())]),
                 output_schema=pa.schema([pa.field("result", pa.int64())]),
                 handler=add_handler,
+            ),
+            "collatz": ScalarFunction(
+                input_schema=pa.schema([pa.field("n", pa.int64())]),
+                output_schema=pa.schema([pa.field("result", pa.int64())]),
+                handler=lambda table: collatz(table.column(0)),
+            ),
+            "collatz_sequence": ScalarFunction(
+                input_schema=pa.schema([pa.field("n", pa.int64())]),
+                output_schema=pa.schema([pa.field("result", pa.list_(pa.int64()))]),
+                handler=lambda table: pa.array(
+                    [collatz_steps(n) for n in table.column(0).to_pylist()], type=pa.list_(pa.int64())
+                ),
             ),
         }
     ),
