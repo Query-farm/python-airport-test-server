@@ -12,9 +12,9 @@
 -e file:.
 annotated-types==0.7.0
     # via pydantic
-boto3==1.39.9
+boto3==1.39.12
     # via query-farm-flight-server
-botocore==1.39.9
+botocore==1.39.12
     # via boto3
     # via s3transfer
 cache3==0.4.3
@@ -54,13 +54,13 @@ python-levenshtein==0.27.1
     # via query-farm-flight-server
 query-farm-duckdb-json-serialization==0.1.2
     # via query-farm-airport-test-server
-query-farm-flight-server==0.1.5
+query-farm-flight-server==0.1.8
     # via query-farm-airport-test-server
 rapidfuzz==3.13.0
     # via levenshtein
 s3transfer==0.13.1
     # via boto3
-sentry-sdk==2.33.0
+sentry-sdk==2.33.2
     # via query-farm-flight-server
 six==1.17.0
     # via python-dateutil

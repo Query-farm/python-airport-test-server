@@ -37,10 +37,7 @@ class TableFunction:
     output_schema_source: pa.Schema | TableFunctionDynamicOutput
 
     # The function to call to process a chunk of rows.
-    handler: Callable[
-        [parameter_types.TableFunctionParameters, pa.Schema],
-        Generator[pa.RecordBatch, pa.RecordBatch, pa.RecordBatch],
-    ]
+    handler: Callable[[parameter_types.TableFunctionParameters, pa.Schema], parameter_types.TableFunctionInOutGenerator]
 
     estimated_rows: int | Callable[[parameter_types.TableFunctionFlightInfo], int] = -1
 
@@ -578,6 +575,11 @@ def dynamic_schema_handler_output_schema(
     return parameters.schema
 
 
+def in_out_long_schema_handler(parameters: pa.RecordBatch, input_schema: pa.Schema | None = None) -> pa.Schema:
+    assert input_schema is not None
+    return pa.schema([input_schema.field(0)])
+
+
 def in_out_schema_handler(parameters: pa.RecordBatch, input_schema: pa.Schema | None = None) -> pa.Schema:
     assert input_schema is not None
     return pa.schema([parameters.schema.field(0), input_schema.field(0)])
@@ -613,34 +615,42 @@ def in_out_echo_handler(
 def in_out_wide_handler(
     parameters: parameter_types.TableFunctionParameters,
     output_schema: pa.Schema,
-) -> Generator[pa.RecordBatch, pa.RecordBatch, None]:
+) -> parameter_types.TableFunctionInOutGenerator:
     result = output_schema.empty_table()
 
     while True:
-        input_chunk = yield result
+        input_chunk = yield (result, True)
 
         if input_chunk is None:
             break
 
+        if isinstance(input_chunk, bool):
+            raise NotImplementedError("Not expecting continuing output for input chunk.")
+
+        chunk_length = len(input_chunk)
+
         result = pa.RecordBatch.from_arrays(
-            [[i] * len(input_chunk) for i in range(20)],
+            [[i] * chunk_length for i in range(20)],
             schema=output_schema,
         )
 
-    return
+    return None
 
 
 def in_out_handler(
     parameters: parameter_types.TableFunctionParameters,
     output_schema: pa.Schema,
-) -> Generator[pa.RecordBatch, pa.RecordBatch, None]:
+) -> parameter_types.TableFunctionInOutGenerator:
     result = output_schema.empty_table()
 
     while True:
-        input_chunk = yield result
+        input_chunk = yield (result, True)
 
         if input_chunk is None:
             break
+
+        if isinstance(input_chunk, bool):
+            raise NotImplementedError("Not expecting continuing output for input chunk.")
 
         assert parameters.parameters is not None
         parameter_value = parameters.parameters.column(0).to_pylist()[0]
@@ -654,7 +664,75 @@ def in_out_handler(
             schema=output_schema,
         )
 
-    return pa.RecordBatch.from_arrays([["last"], ["row"]], schema=output_schema)
+    return [pa.RecordBatch.from_arrays([["last"], ["row"]], schema=output_schema)]
+
+
+def in_out_long_handler(
+    parameters: parameter_types.TableFunctionParameters,
+    output_schema: pa.Schema,
+) -> parameter_types.TableFunctionInOutGenerator:
+    result = output_schema.empty_table()
+
+    while True:
+        input_chunk = yield (result, True)
+
+        if input_chunk is None:
+            break
+
+        if isinstance(input_chunk, bool):
+            raise NotImplementedError("Not expecting continuing output for input chunk.")
+
+        # Return the input chunk ten times.
+        multiplier = 10
+        copied_results = [
+            pa.RecordBatch.from_arrays(
+                [
+                    input_chunk.column(0),
+                ],
+                schema=output_schema,
+            )
+            for index in range(multiplier)
+        ]
+
+        for item in copied_results[0:-1]:
+            yield (item, False)
+        result = copied_results[-1]
+
+    return None
+
+
+def in_out_huge_chunk_handler(
+    parameters: parameter_types.TableFunctionParameters,
+    output_schema: pa.Schema,
+) -> parameter_types.TableFunctionInOutGenerator:
+    result = output_schema.empty_table()
+    multiplier = 10
+    chunk_length = 5000
+
+    while True:
+        input_chunk = yield (result, True)
+
+        if input_chunk is None:
+            break
+
+        if isinstance(input_chunk, bool):
+            raise NotImplementedError("Not expecting continuing output for input chunk.")
+
+        for index, _i in enumerate(range(multiplier)):
+            output = pa.RecordBatch.from_arrays(
+                [list(range(chunk_length)), list([index] * chunk_length)],
+                schema=output_schema,
+            )
+            if index < multiplier - 1:
+                yield (output, False)
+            else:
+                result = output
+
+    # test big chunks returned as the last results.
+    return [
+        pa.RecordBatch.from_arrays([list(range(chunk_length)), list([footer_id] * chunk_length)], schema=output_schema)
+        for footer_id in (-1, -2, -3)
+    ]
 
 
 def yellow_taxi_endpoint_generator(ticket_data: Any) -> list[flight.FlightEndpoint]:
@@ -739,6 +817,17 @@ static_data_schema = SchemaCollection(
     table_functions_by_name=CaseInsensitiveDict(),
     tables_by_name=CaseInsensitiveDict(
         {
+            "big_chunk": TableInfo(
+                table_versions=[
+                    pa.Table.from_arrays(
+                        [
+                            list(range(100000)),
+                        ],
+                        schema=pa.schema([pa.field("id", pa.int64())]),
+                    )
+                ],
+                row_id_counter=0,
+            ),
             "employees": TableInfo(
                 table_versions=[
                     pa.Table.from_arrays(
@@ -775,7 +864,7 @@ static_data_schema = SchemaCollection(
                     )
                 ],
                 row_id_counter=2,
-            )
+            ),
         }
     ),
 )
@@ -947,6 +1036,41 @@ util_schema = SchemaCollection(
                     ),
                 ),
                 handler=in_out_handler,
+            ),
+            "test_table_in_out_long": TableFunction(
+                input_schema=pa.schema(
+                    [
+                        pa.field(
+                            "table_input",
+                            pa.string(),
+                            metadata={"is_table_type": "1"},
+                        ),
+                    ]
+                ),
+                output_schema_source=TableFunctionDynamicOutput(
+                    schema_creator=in_out_long_schema_handler,
+                    default_values=(
+                        pa.RecordBatch.from_arrays(
+                            [pa.array([1], type=pa.int32())],
+                            schema=pa.schema([pa.field("input", pa.int32())]),
+                        ),
+                        pa.schema([pa.field("input", pa.int32())]),
+                    ),
+                ),
+                handler=in_out_long_handler,
+            ),
+            "test_table_in_out_huge": TableFunction(
+                input_schema=pa.schema(
+                    [
+                        pa.field(
+                            "table_input",
+                            pa.string(),
+                            metadata={"is_table_type": "1"},
+                        ),
+                    ]
+                ),
+                output_schema_source=pa.schema([("multiplier", pa.int64()), ("value", pa.int64())]),
+                handler=in_out_huge_chunk_handler,
             ),
             "test_table_in_out_wide": TableFunction(
                 input_schema=pa.schema(
