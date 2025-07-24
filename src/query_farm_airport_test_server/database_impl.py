@@ -161,6 +161,11 @@ class TableInfo:
     # To enable version history keep track of tables.
     table_versions: list[pa.Table] = field(default_factory=list)
 
+    primary_key_columns: list[str] = field(default_factory=list)
+    unique_columns: list[str] = field(default_factory=list)
+    multi_key_primary_keys: list[str] = field(default_factory=list)
+    extra_constraints: list[str] = field(default_factory=list)
+
     # the next row id to assign.
     row_id_counter: int = 0
 
@@ -219,6 +224,10 @@ class TableInfo:
         return {
             "table_versions": [serialize_table_data(table) for table in self.table_versions],
             "row_id_counter": self.row_id_counter,
+            "primary_key_columns": self.primary_key_columns,
+            "unique_columns": self.unique_columns,
+            "multi_key_primary_keys": self.multi_key_primary_keys,
+            "extra_constraints": self.extra_constraints,
         }
 
     def deserialize(self, data: dict[str, Any]) -> "TableInfo":
@@ -228,6 +237,10 @@ class TableInfo:
         self.table_versions = [deserialize_table_data(table) for table in data["table_versions"]]
         self.row_id_counter = data["row_id_counter"]
         self.endpoint_generator = None
+        self.primary_key_columns = data.get("primary_key_columns", [])
+        self.unique_columns = data.get("unique_columns", [])
+        self.multi_key_primary_keys = data.get("multi_key_primary_keys", [])
+        self.extra_constraints = data.get("extra_constraints", [])
         return self
 
 
@@ -374,7 +387,11 @@ class DatabaseContents:
 
     def serialize(self) -> dict[str, Any]:
         return {
-            "schemas": {name: schema.serialize() for name, schema in self.schemas_by_name.items()},
+            "schemas": {
+                name: schema.serialize()
+                for name, schema in self.schemas_by_name.items()
+                if name not in ("static_data", "remote_data", "utils")
+            },
             "version": self.version,
         }
 

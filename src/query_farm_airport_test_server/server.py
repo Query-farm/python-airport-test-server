@@ -395,7 +395,14 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
 
             schema_with_row_id = parameters.arrow_schema.append(self.rowid_field)
 
-            table_info = TableInfo([schema_with_row_id.empty_table()], 0)
+            table_info = TableInfo(
+                table_versions=[schema_with_row_id.empty_table()],
+                row_id_counter=0,
+                primary_key_columns=parameters.primary_key_columns,
+                unique_columns=parameters.unique_columns,
+                multi_key_primary_keys=parameters.multi_key_primary_keys,
+                extra_constraints=parameters.extra_constraints,
+            )
 
             schema.tables_by_name[parameters.table_name] = table_info
 
@@ -653,6 +660,38 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
             for chunk in reader:
                 if chunk.data is not None:
                     new_rows = pa.Table.from_batches([chunk.data])
+
+                    for column_name in table_info.primary_key_columns:
+                        insert_values = new_rows.column(column_name)
+
+                        # Make sure that all elements are unique
+                        value_counts = pc.value_counts(insert_values)
+                        duplicates_struct = pc.filter(value_counts, pc.greater(value_counts.field("counts"), 1))
+                        duplicates = duplicates_struct.field("values")
+                        if len(duplicates) > 0:
+                            raise flight.FlightServerError(
+                                f"Cannot insert rows with duplicate values in primary key column {column_name}: {duplicates}",
+                                extra_info=msgpack.packb(
+                                    {
+                                        "exception_type": "ConstraintException",
+                                        "message": f"""Duplicate key "{column_name}: {duplicates[0]}" violates primary key constraint.""",
+                                    }
+                                ),
+                            )
+
+                        already_exists = pc.is_in(insert_values, value_set=existing_table.column(column_name))
+                        existing_rows = pc.filter(insert_values, already_exists)
+                        if len(existing_rows) > 0:
+                            raise flight.FlightServerError(
+                                f"Cannot insert rows with duplicate values in primary key column {column_name}: {duplicates}",
+                                extra_info=msgpack.packb(
+                                    {
+                                        "exception_type": "ConstraintException",
+                                        "message": f"""Duplicate key "{column_name}: {existing_rows[0]}" violates primary key constraint.""",
+                                    }
+                                ),
+                            )
+
                     assert new_rows.num_rows > 0
 
                     # append the row id column to the new rows.
