@@ -14,6 +14,7 @@ import query_farm_duckdb_json_serialization.expression
 import query_farm_flight_server.auth as auth
 import query_farm_flight_server.auth_manager as auth_manager
 import query_farm_flight_server.auth_manager_naive as auth_manager_naive
+import query_farm_flight_server.exceptions as exceptions
 import query_farm_flight_server.flight_handling as flight_handling
 import query_farm_flight_server.flight_inventory as flight_inventory
 import query_farm_flight_server.middleware as base_middleware
@@ -669,28 +670,12 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
                         duplicates_struct = pc.filter(value_counts, pc.greater(value_counts.field("counts"), 1))
                         duplicates = duplicates_struct.field("values")
                         if len(duplicates) > 0:
-                            raise flight.FlightServerError(
-                                f"Cannot insert rows with duplicate values in primary key column {column_name}: {duplicates}",
-                                extra_info=msgpack.packb(
-                                    {
-                                        "exception_type": "ConstraintException",
-                                        "message": f"""Duplicate key "{column_name}: {duplicates[0]}" violates primary key constraint.""",
-                                    }
-                                ),
-                            )
+                            raise exceptions.ConstraintException(column_name, duplicates)
 
                         already_exists = pc.is_in(insert_values, value_set=existing_table.column(column_name))
                         existing_rows = pc.filter(insert_values, already_exists)
                         if len(existing_rows) > 0:
-                            raise flight.FlightServerError(
-                                f"Cannot insert rows with duplicate values in primary key column {column_name}: {duplicates}",
-                                extra_info=msgpack.packb(
-                                    {
-                                        "exception_type": "ConstraintException",
-                                        "message": f"""Duplicate key "{column_name}: {existing_rows[0]}" violates primary key constraint.""",
-                                    }
-                                ),
-                            )
+                            raise exceptions.ConstraintException(column_name, existing_rows[0])
 
                     assert new_rows.num_rows > 0
 

@@ -54,7 +54,7 @@ python-levenshtein==0.27.1
     # via query-farm-flight-server
 query-farm-duckdb-json-serialization==0.1.2
     # via query-farm-airport-test-server
-query-farm-flight-server==0.1.8
+query-farm-flight-server==0.1.11
     # via query-farm-airport-test-server
 rapidfuzz==3.13.0
     # via levenshtein
