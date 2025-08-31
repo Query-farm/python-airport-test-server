@@ -527,7 +527,7 @@ def no_op_handler(table: pa.Table) -> pa.Array:
 
 
 def time_handler(table: pa.Table) -> pa.Array:
-    current_time = datetime.datetime.now(datetime.timezone.utc)
+    current_time = datetime.datetime.now(datetime.UTC)
     return pa.array([current_time] * table.num_rows, type=pa.timestamp("us"))
 
 
