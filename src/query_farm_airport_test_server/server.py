@@ -211,7 +211,10 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
     ) -> base_server.AirportSerializedCatalogRoot:
         assert context.caller is not None
 
-        with DatabaseLibraryContext(context.caller.token.token, readonly=True) as library:
+        with DatabaseLibraryContext(context.caller.token.token) as library:
+            if parameters.catalog_name not in library.databases_by_name:
+                library.databases_by_name[parameters.catalog_name] = DatabaseContents()
+
             database = library.by_name(parameters.catalog_name)
 
             dynamic_inventory: dict[str, dict[str, list[flight_inventory.FlightInventoryWithMetadata]]] = {}
@@ -239,7 +242,13 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
                 ),
                 flight_service_name=self.service_name,
                 flight_inventory=dynamic_inventory,
-                schema_details={},
+                schema_details={
+                    "static_data": flight_inventory.SchemaInfo(
+                        description="Some example static data",
+                        tags={},
+                        is_default=True,
+                    )
+                },
                 skip_upload=True,
                 serialize_inline=True,
                 catalog_version=1,
@@ -650,13 +659,13 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
             rowid_index = existing_table.schema.get_field_index(self.ROWID_FIELD_NAME)
             assert rowid_index != -1
 
+            has_non_nullable_field = any(map(lambda field: not field.nullable, existing_table.schema))
+
             # Check that the data being read matches the table without the rowid column.
 
             # DuckDB won't send field metadata when it sends us the schema that it uses
             # to perform an insert, so we need some way to adapt the schema we
             check_schema_is_subset_of_schema(existing_table.schema, reader.schema)
-
-            # FIXME: need to handle the case of rowids.
 
             for chunk in reader:
                 if chunk.data is not None:
@@ -681,14 +690,10 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
 
                     # append the row id column to the new rows.
                     chunk_length = new_rows.num_rows
-                    rowid_values = [
-                        x
-                        for x in range(
-                            table_info.row_id_counter,
-                            table_info.row_id_counter + chunk_length,
-                        )
-                    ]
-                    new_rows = new_rows.append_column(self.rowid_field, [rowid_values])
+                    rowid_array = pa.array(
+                        range(table_info.row_id_counter, table_info.row_id_counter + chunk_length), type=pa.int64()
+                    )
+                    new_rows = new_rows.append_column(self.rowid_field, rowid_array)
                     table_info.row_id_counter += chunk_length
                     change_count += chunk_length
 
@@ -699,16 +704,8 @@ class InMemoryArrowFlightServer(base_server.BasicFlightServer[auth.Account, auth
                     # the ensure that the columns are aligned in the same order as the original table.
 
                     # So it turns out that DuckDB doesn't send the "not null" flag in the arrow schema.
-                    #
-                    # This means we can't concat the tables, without those flags matching.
-                    # for field_name in existing_table.schema.names:
-                    #     field = existing_table.schema.field(field_name)
-                    #     if not field.nullable:
-                    #         field_index = new_rows.schema.get_field_index(field_name)
-                    #         new_rows = new_rows.set_column(
-                    #             field_index, field.with_nullable(False), new_rows.column(field_index)
-                    #         )
-                    new_rows = conform_nullable(existing_table.schema, new_rows)
+                    if has_non_nullable_field:
+                        new_rows = conform_nullable(existing_table.schema, new_rows)
 
                     existing_table = pa.concat_tables([existing_table, new_rows.select(existing_table.schema.names)])
 

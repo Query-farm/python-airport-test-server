@@ -109,6 +109,8 @@ class ScalarFunction:
     # The function to call to process a chunk of rows.
     handler: Callable[[pa.Table], pa.Array]
 
+    stability: flight_inventory.ScalarFunctionStability
+
     def flight_info(
         self, *, name: str, catalog_name: str, schema_name: str
     ) -> tuple[flight.FlightInfo, flight_inventory.FlightSchemaMetadata]:
@@ -116,13 +118,13 @@ class ScalarFunction:
         Often its necessary to create a FlightInfo object
         standardize doing that here.
         """
-        metadata = flight_inventory.FlightSchemaMetadata(
-            type="scalar_function",
+        metadata = flight_inventory.ScalarFunctionMetadata(
             catalog=catalog_name,
             schema=schema_name,
             name=name,
             comment=None,
             input_schema=self.input_schema,
+            stability=self.stability,
         )
         flight_info = flight.FlightInfo(
             self.output_schema,
@@ -518,6 +520,15 @@ class DatabaseLibraryContext:
 def add_handler(table: pa.Table) -> pa.Array:
     assert table.num_columns == 2
     return pc.add(table.column(0), table.column(1))
+
+
+def no_op_handler(table: pa.Table) -> pa.Array:
+    return table.column(0)
+
+
+def time_handler(table: pa.Table) -> pa.Array:
+    current_time = datetime.datetime.now(datetime.timezone.utc)
+    return pa.array([current_time] * table.num_rows, type=pa.timestamp("us"))
 
 
 def uppercase_handler(table: pa.Table) -> pa.Array:
@@ -923,21 +934,43 @@ util_schema = SchemaCollection(
                 input_schema=pa.schema([pa.field("a", pa.string())]),
                 output_schema=pa.schema([pa.field("result", pa.string())]),
                 handler=uppercase_handler,
+                stability="consistent",
             ),
             "test_any_type": ScalarFunction(
                 input_schema=pa.schema([pa.field("a", pa.string(), metadata={"is_any_type": "1"})]),
                 output_schema=pa.schema([pa.field("result", pa.string())]),
                 handler=any_type_handler,
+                stability="consistent",
+            ),
+            "test_time": ScalarFunction(
+                input_schema=pa.schema([]),
+                output_schema=pa.schema([pa.field("result", pa.timestamp("us"))]),
+                handler=time_handler,
+                stability="consistent_within_query",
+            ),
+            "test_no_op": ScalarFunction(
+                input_schema=pa.schema([pa.field("a", pa.int64(), metadata={"is_any_type": "1"})]),
+                output_schema=pa.schema([pa.field("result", pa.int64())]),
+                handler=no_op_handler,
+                stability="consistent",
+            ),
+            "test_no_op_string": ScalarFunction(
+                input_schema=pa.schema([pa.field("a", pa.string())]),
+                output_schema=pa.schema([pa.field("result", pa.string())]),
+                handler=no_op_handler,
+                stability="consistent",
             ),
             "test_add": ScalarFunction(
                 input_schema=pa.schema([pa.field("a", pa.int64()), pa.field("b", pa.int64())]),
                 output_schema=pa.schema([pa.field("result", pa.int64())]),
                 handler=add_handler,
+                stability="consistent",
             ),
             "collatz": ScalarFunction(
                 input_schema=pa.schema([pa.field("n", pa.int64())]),
                 output_schema=pa.schema([pa.field("result", pa.int64())]),
                 handler=lambda table: collatz(table.column(0)),
+                stability="consistent",
             ),
             "collatz_sequence": ScalarFunction(
                 input_schema=pa.schema([pa.field("n", pa.int64())]),
@@ -945,6 +978,7 @@ util_schema = SchemaCollection(
                 handler=lambda table: pa.array(
                     [collatz_steps(n) for n in table.column(0).to_pylist()], type=pa.list_(pa.int64())
                 ),
+                stability="consistent",
             ),
         }
     ),
